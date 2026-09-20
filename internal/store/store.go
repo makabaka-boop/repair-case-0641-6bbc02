@@ -135,7 +135,7 @@ func (s *Store) Claim(ctx context.Context, leaseFor time.Duration) (*Claim, erro
 		FROM commands
 		WHERE status = 'pending'
 		  AND (lease_expires_at IS NULL OR lease_expires_at <= now())
-		ORDER BY id DESC
+		ORDER BY id ASC
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1`).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -207,13 +207,14 @@ func (s *Store) Ack(ctx context.Context, id int64, token, result string) error {
 		return fmt.Errorf("ack load command: %w", err)
 	}
 
-	// 令牌必须是系统签发过的。
+	// 令牌必须是系统针对该指令签发过的：令牌只在其所属指令的租约历史中查找，
+	// 其他指令的有效令牌不得用来结算本条指令。
 	var leaseGen int64
 	var leaseExpires time.Time
 	err = tx.QueryRow(ctx, `
 		SELECT generation, expires_at
 		FROM leases
-		WHERE lease_token = $1`, token).Scan(&leaseGen, &leaseExpires)
+		WHERE command_id = $1 AND lease_token = $2`, id, token).Scan(&leaseGen, &leaseExpires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrInvalidLeaseToken
 	}
@@ -245,8 +246,8 @@ func (s *Store) Ack(ctx context.Context, id int64, token, result string) error {
 
 	if _, err = tx.Exec(ctx, `
 		UPDATE commands
-		SET status = 'delivered', updated_at = now()
-		WHERE id = $1 AND status = 'pending'`, id); err != nil {
+		SET status = $2, updated_at = now()
+		WHERE id = $1 AND status = 'pending'`, id, result); err != nil {
 		return fmt.Errorf("ack status update: %w", err)
 	}
 
