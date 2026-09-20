@@ -221,7 +221,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ms, ok := parseStrictInt(req.LeaseDurationMS)
-	if !ok || ms <= minLeaseMS || ms >= maxLeaseMS {
+	if !ok || ms < minLeaseMS || ms > maxLeaseMS {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_lease_duration",
 			"lease_duration_ms must be an integer between 100 and 5000")
 		return
